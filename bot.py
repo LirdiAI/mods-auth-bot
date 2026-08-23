@@ -2,6 +2,7 @@ import os
 import threading
 from flask import Flask, request, jsonify
 import telebot
+from telebot import types
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import qrcode
 import io
@@ -192,7 +193,7 @@ def callback_query(call):
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
             bot.send_message(user_id, f"✅ Ваши привязанные коды модов (@Makaronpay):\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
         else:
-            bot.send_message(user_id, "У вас пока нет привязанных модов.", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+            bot.send_message(user_id, "У вас пока нет привязанных модов.", reply_markup=get_main_menu(user_id))
             
     elif call.data == "btn_link":
         waiting_for_link[user_id] = True
@@ -244,7 +245,7 @@ def handle_text(message):
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
             bot.send_message(user_id, f"✅ Ваши привязанные коды модов:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
         else:
-            bot.send_message(user_id, "У вас пока нет привязанных модов.", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+            bot.send_message(user_id, "У вас пока нет привязанных модов.", reply_markup=get_main_menu(user_id))
     elif waiting_for_link.get(user_id):
         if "/send mod link" in text:
             code = text.split()[-1].strip()
