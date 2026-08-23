@@ -3,6 +3,8 @@ import threading
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import qrcode
+import io
 
 API_TOKEN = '8931457977:AAGtHKIbrJDMJqinMhZMcm9Jfgr1-I23n_w'
 bot = telebot.TeleBot(API_TOKEN)
@@ -22,6 +24,9 @@ def run_web():
 linked_users = {}
 waiting_for_link = {}
 
+# Ссылка на вашу оплату через СБП / Т-Банк (замените на свою реальную ссылку для перевода)
+SBW_QR_PAYMENT_URL = "https://t.to/your_qr_payment_link"
+
 def get_main_menu(user_id):
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -29,7 +34,7 @@ def get_main_menu(user_id):
         InlineKeyboardButton("📦 Моды", callback_data="btn_mods")
     )
     markup.add(
-        InlineKeyboardButton("⭐ Подписка", callback_data="btn_sub")
+        InlineKeyboardButton("⭐ Поддержка", callback_data="btn_sub")
     )
     if user_id in linked_users and len(linked_users[user_id]) > 0:
         markup.add(InlineKeyboardButton("✅ Привязанные", callback_data="btn_linked"))
@@ -54,14 +59,68 @@ def callback_query(call):
             "owner @Makoronpay"
         )
         bot.send_message(user_id, mods_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
+        
     elif call.data == "btn_sub":
-        bot.send_message(user_id, "⭐ Раздел подписки в разработке. Скоро здесь появится новый функционал!", reply_markup=get_main_menu(user_id))
+        # Меню выбора вариантов поддержки
+        support_markup = InlineKeyboardMarkup(row_width=1)
+        support_markup.add(
+            InlineKeyboardButton("🔸 Medium — 100 руб", callback_data="pay_medium"),
+            InlineKeyboardButton("🔸 Fauth — 300 руб", callback_data="pay_fauth"),
+            InlineKeyboardButton("🔸 Поддержка — 4 руб", callback_data="pay_support"),
+            InlineKeyboardButton("⬅️ Назад", callback_data="btn_back")
+        )
+        bot.edit_message_text(
+            "❤️ <b>Выберите вариант поддержки проекта:</b>\n\n"
+            "Нажмите на нужную кнопку, чтобы получить QR-код для оплаты через СБП.",
+            chat_id=user_id,
+            message_id=call.message.message_id,
+            parse_mode="HTML",
+            reply_markup=support_markup
+        )
+        
+    elif call.data.startswith("pay_"):
+        tier_names = {
+            "pay_medium": "Medium (100 руб)",
+            "pay_fauth": "Fauth (300 руб)",
+            "pay_support": "Поддержка (4 руб)"
+        }
+        tier_title = tier_names.get(call.data, "Поддержка")
+
+        # Генерация QR-кода на лету
+        qr = qrcode.QRCode(version=1, box_size=10, border=2)
+        qr.add_data(SBW_QR_PAYMENT_URL)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        bio = io.BytesIO()
+        img.save(bio, format="PNG")
+        bio.seek(0)
+        
+        caption = (
+            f"💳 <b>Вы выбрали: {tier_title}</b>\n\n"
+            "📷 <b>QR-код для оплаты через СБП:</b>\n"
+            "1. Отсканируйте этот код через приложение вашего банка (Т-Банк, Сбер и др.).\n"
+            "2. Уточните сумму перевода.\n"
+            "3. После оплаты отправьте чек или скриншот администратору (@Makoronpay) для подтверждения."
+        )
+        
+        bot.send_photo(user_id, photo=types.InputFile(bio, filename="qr.png"), caption=caption, parse_mode="HTML")
+        
+    elif call.data == "btn_back":
+        bot.edit_message_text(
+            "👋 Выберите нужный пункт меню:",
+            chat_id=user_id,
+            message_id=call.message.message_id,
+            reply_markup=get_main_menu(user_id)
+        )
+        
     elif call.data == "btn_linked":
         if user_id in linked_users and linked_users[user_id]:
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
             bot.send_message(user_id, f"✅ Ваши привязанные коды модов:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
         else:
             bot.send_message(user_id, "У вас пока нет привязанных модов.", reply_markup=get_main_menu(user_id))
+            
     elif call.data == "btn_link":
         waiting_for_link[user_id] = True
         bot.send_message(
@@ -84,8 +143,14 @@ def handle_text(message):
         bot.send_message(user_id, "📤 Отправьте команду вида: <code>/send mod link [ваш_код]</code>", parse_mode="HTML")
     elif text == "📦 Моды":
         bot.send_message(user_id, "📦 <b>PiarSend</b> — owner @Makoronpay", parse_mode="HTML", reply_markup=get_main_menu(user_id))
-    elif text == "⭐ Подписка":
-        bot.send_message(user_id, "⭐ Раздел подписки в разработке.", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+    elif text == "⭐ Поддержка":
+        support_markup = InlineKeyboardMarkup(row_width=1)
+        support_markup.add(
+            InlineKeyboardButton("🔸 Medium — 100 руб", callback_data="pay_medium"),
+            InlineKeyboardButton("🔸 Fauth — 300 руб", callback_data="pay_fauth"),
+            InlineKeyboardButton("🔸 Поддержка — 4 руб", callback_data="pay_support")
+        )
+        bot.send_message(user_id, "❤️ <b>Выберите вариант поддержки проекта:</b>", parse_mode="HTML", reply_markup=support_markup)
     elif text == "✅ Привязанные":
         if user_id in linked_users and linked_users[user_id]:
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
