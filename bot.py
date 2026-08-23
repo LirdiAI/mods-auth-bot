@@ -9,7 +9,7 @@ import io
 API_TOKEN = '8931457977:AAGtHKIbrJDMJqinMhZMcm9Jfgr1-I23n_w'
 bot = telebot.TeleBot(API_TOKEN)
 
-# Создаем легкий веб-сервер для Render
+# Создаем легкий веб-сервер для Render (для 24/7 работы)
 app = Flask('')
 
 @app.route('/')
@@ -24,8 +24,12 @@ def run_web():
 linked_users = {}
 waiting_for_link = {}
 
-# Ссылка на вашу оплату через СБП / Т-Банк (замените на свою реальную ссылку для перевода)
-SBW_QR_PAYMENT_URL = "http://t.tb.ru/mZirDH"
+# Ваши ссылки на оплату через Т-Банк для каждого уровня
+PAYMENT_LINKS = {
+    "pay_support": "http://t.tb.ru/mZirDH",    # 4 руб
+    "pay_medium": "http://t.tb.ru/atK75v",     # 100 руб
+    "pay_fauth": "http://t.tb.ru/vkJCGf"       # 300 руб
+}
 
 def get_main_menu(user_id):
     markup = InlineKeyboardMarkup(row_width=2)
@@ -48,9 +52,35 @@ def cmd_start(message):
         reply_markup=get_main_menu(message.from_user.id)
     )
 
+# Команда для выдачи подписки: /grant [user_id] [уровень]
+@bot.message_handler(commands=['grant'])
+def cmd_grant(message):
+    username = message.from_user.username
+    if not username or username.lower() != "makoronpay":
+        bot.send_message(message.chat.id, "❌ У вас нет прав на использование этой команды.")
+        return
+    
+    try:
+        parts = message.text.split()
+        target_user_id = int(parts[1])
+        tier = parts[2]
+        
+        bot.send_message(
+            target_user_id,
+            f"🎉 <b>Ваша поддержка подтверждена!</b>\n"
+            f"Вам присвоен уровень: <b>{tier}</b>.\n"
+            f"Спасибо за поддержку проекта!",
+            parse_mode="HTML"
+        )
+        
+        bot.send_message(message.chat.id, f"✅ Успешно выдано пользователю {target_user_id} уровень {tier}.")
+    except Exception as e:
+        bot.send_message(message.chat.id, "❌ Ошибка! Используйте формат: <code>/grant [user_id] [уровень]</code>", parse_mode="HTML")
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     user_id = call.from_user.id
+    
     if call.data == "btn_mods":
         mods_text = (
             "📦 <b>Список ваших модов:</b>\n\n"
@@ -61,7 +91,6 @@ def callback_query(call):
         bot.send_message(user_id, mods_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
         
     elif call.data == "btn_sub":
-        # Меню выбора вариантов поддержки
         support_markup = InlineKeyboardMarkup(row_width=1)
         support_markup.add(
             InlineKeyboardButton("🔸 Medium — 100 руб", callback_data="pay_medium"),
@@ -71,7 +100,7 @@ def callback_query(call):
         )
         bot.edit_message_text(
             "❤️ <b>Выберите вариант поддержки проекта:</b>\n\n"
-            "Нажмите на нужную кнопку, чтобы получить QR-код для оплаты через СБП.",
+            "Нажмите на нужную сумму, чтобы получить QR-код для перевода через СБП.",
             chat_id=user_id,
             message_id=call.message.message_id,
             parse_mode="HTML",
@@ -85,10 +114,10 @@ def callback_query(call):
             "pay_support": "Поддержка (4 руб)"
         }
         tier_title = tier_names.get(call.data, "Поддержка")
+        pay_url = PAYMENT_LINKS.get(call.data, "http://t.tb.ru/mZirDH")
 
-        # Генерация QR-кода на лету
         qr = qrcode.QRCode(version=1, box_size=10, border=2)
-        qr.add_data(SBW_QR_PAYMENT_URL)
+        qr.add_data(pay_url)
         qr.make(fit=True)
         
         img = qr.make_image(fill_color="black", back_color="white")
@@ -97,14 +126,16 @@ def callback_query(call):
         bio.seek(0)
         
         caption = (
-            f"💳 <b>Вы выбрали: {tier_title}</b>\n\n"
-            "📷 <b>QR-код для оплаты через СБП:</b>\n"
-            "1. Отсканируйте этот код через приложение вашего банка (Т-Банк, Сбер и др.).\n"
-            "2. Уточните сумму перевода.\n"
-            "3. После оплаты отправьте чек или скриншот администратору (@Makoronpay) для подтверждения."
+            f"💳 <b>Выбрано: {tier_title}</b>\n\n"
+            f"📷 <b>QR-код для перевода по СБП:</b>\n"
+            f"1. Отсканируйте код через приложение своего банка (Т-Банк, Сбер и др.).\n"
+            f"2. После оплаты отправьте чек или скриншот администратору (@Makoronpay), чтобы подтвердить поддержку!"
         )
         
-        bot.send_photo(user_id, photo=types.InputFile(bio, filename="qr.png"), caption=caption, parse_mode="HTML")
+        back_markup = InlineKeyboardMarkup()
+        back_markup.add(InlineKeyboardButton("⬅️ Назад к выбору", callback_data="btn_sub"))
+        
+        bot.send_photo(user_id, photo=types.InputFile(bio, filename="qr.png"), caption=caption, parse_mode="HTML", reply_markup=back_markup)
         
     elif call.data == "btn_back":
         bot.edit_message_text(
@@ -181,12 +212,9 @@ def handle_text(message):
         bot.send_message(user_id, "Используйте кнопки меню для навигации.", reply_markup=get_main_menu(user_id))
 
 if __name__ == "__main__":
-    # Запускаем телеграм-бота в отдельном потоке
     bot_thread = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
     bot_thread.daemon = True
     bot_thread.start()
     
     print("Telegram bot started in background thread...")
-    
-    # Запускаем веб-сервер на главном потоке (требуется для Render)
     run_web()
