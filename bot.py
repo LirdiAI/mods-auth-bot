@@ -1,10 +1,24 @@
+import os
+import threading
+from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 API_TOKEN = '8931457977:AAGtHKIbrJDMJqinMhZMcm9Jfgr1-I23n_w'
 bot = telebot.TeleBot(API_TOKEN)
 
-# База данных привязок: telegram_id -> список кодов
+# Создаем легкий веб-сервер для Render
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is active and running 24/7!"
+
+def run_web():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# База данных привязок и состояний
 linked_users = {}
 waiting_for_link = {}
 
@@ -71,7 +85,7 @@ def handle_text(message):
     elif text == "📦 Моды":
         bot.send_message(user_id, "📦 <b>PiarSend</b> — owner @Makoronpay", parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif text == "⭐ Подписка":
-        bot.send_message(user_id, "⭐ Раздел подписки в разработке.", reply_markup=get_main_menu(user_id))
+        bot.send_message(user_id, "⭐ Раздел подписки в разработке.", parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif text == "✅ Привязанные":
         if user_id in linked_users and linked_users[user_id]:
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
@@ -102,5 +116,12 @@ def handle_text(message):
         bot.send_message(user_id, "Используйте кнопки меню для навигации.", reply_markup=get_main_menu(user_id))
 
 if __name__ == "__main__":
-    print("Bot started...")
-    bot.infinity_polling()
+    # Запускаем телеграм-бота в отдельном потоке
+    bot_thread = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    print("Telegram bot started in background thread...")
+    
+    # Запускаем веб-сервер на главном потоке (требуется для Render)
+    run_web()
