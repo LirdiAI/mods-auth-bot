@@ -78,7 +78,7 @@ def cmd_start(message):
 @bot.message_handler(commands=['sub'])
 def cmd_sub_gift(message):
     username = message.from_user.username
-    if not username or username.lower() != "makoronpay":
+    if not username or username.lower() != "makaronpay":
         bot.send_message(message.chat.id, "❌ У вас нет прав на использование этой команды. Обратитесь к @Makaronpay.")
         return
     
@@ -178,7 +178,8 @@ def callback_query(call):
         back_markup = InlineKeyboardMarkup()
         back_markup.add(InlineKeyboardButton("⬅️ Назад к выбору", callback_data="btn_sub"))
         
-        bot.send_photo(user_id, photo=types.InputFile(bio, filename="qr.png"), caption=caption, parse_mode="HTML", reply_markup=back_markup)
+        # Исправлено с filename на file_name
+        bot.send_photo(user_id, photo=types.InputFile(bio, file_name="qr.png"), caption=caption, parse_mode="HTML", reply_markup=back_markup)
         
     elif call.data == "btn_back":
         bot.edit_message_text(
