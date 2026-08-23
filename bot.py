@@ -20,8 +20,9 @@ def run_web():
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
 
-# База данных привязок и состояний
+# Базы данных для привязок, подписок и состояний
 linked_users = {}
+user_subscriptions = {} # Хранит уровень подписки пользователя
 waiting_for_link = {}
 
 # Ваши ссылки на оплату через Т-Банк для каждого уровня
@@ -38,7 +39,8 @@ def get_main_menu(user_id):
         InlineKeyboardButton("📦 Моды", callback_data="btn_mods")
     )
     markup.add(
-        InlineKeyboardButton("⭐ Поддержка", callback_data="btn_sub")
+        InlineKeyboardButton("⭐ Подписки", callback_data="btn_sub"),
+        InlineKeyboardButton("ℹ️ Информация", callback_data="btn_info")
     )
     if user_id in linked_users and len(linked_users[user_id]) > 0:
         markup.add(InlineKeyboardButton("✅ Привязанные", callback_data="btn_linked"))
@@ -48,34 +50,38 @@ def get_main_menu(user_id):
 def cmd_start(message):
     bot.send_message(
         message.chat.id,
-        "👋 Привет! Добро пожаловать в панель управления модами.\nВыберите нужный пункт меню:",
+        "👋 Привет! Добро пожаловать в панель управления модами от @Makaronpay.\nВыберите нужный пункт меню:",
         reply_markup=get_main_menu(message.from_user.id)
     )
 
-# Команда для выдачи подписки: /grant [user_id] [уровень]
-@bot.message_handler(commands=['grant'])
-def cmd_grant(message):
+# Команда для выдачи подписки: /sub gift [ID_игрока] [подписка]
+@bot.message_handler(commands=['sub'])
+def cmd_sub_gift(message):
     username = message.from_user.username
-    if not username or username.lower() != "makoronpay":
-        bot.send_message(message.chat.id, "❌ У вас нет прав на использование этой команды.")
+    if not username or username.lower() != "makaronpay":
+        bot.send_message(message.chat.id, "❌ У вас нет прав на использование этой команды. Обратитесь к @Makaronpay.")
         return
     
     try:
         parts = message.text.split()
-        target_user_id = int(parts[1])
-        tier = parts[2]
-        
-        bot.send_message(
-            target_user_id,
-            f"🎉 <b>Ваша поддержка подтверждена!</b>\n"
-            f"Вам присвоен уровень: <b>{tier}</b>.\n"
-            f"Спасибо за поддержку проекта!",
-            parse_mode="HTML"
-        )
-        
-        bot.send_message(message.chat.id, f"✅ Успешно выдано пользователю {target_user_id} уровень {tier}.")
+        if len(parts) >= 4 and parts[1].lower() == "gift":
+            target_user_id = int(parts[2])
+            tier = parts[3]
+            
+            user_subscriptions[target_user_id] = tier
+            
+            bot.send_message(
+                target_user_id,
+                f"🎉 <b>Ваша подписка подтверждена администратором @Makaronpay!</b>\n"
+                f"Вам присвоен уровень: <b>{tier}</b>.\n"
+                f"Спасибо за поддержку проекта!",
+                parse_mode="HTML"
+            )
+            bot.send_message(message.chat.id, f"✅ Успешно выдана подписка '{tier}' пользователю {target_user_id}.")
+        else:
+            bot.send_message(message.chat.id, "❌ Неверный формат! Используйте: <code>/sub gift [ID_игрока] [уровень]</code>", parse_mode="HTML")
     except Exception as e:
-        bot.send_message(message.chat.id, "❌ Ошибка! Используйте формат: <code>/grant [user_id] [уровень]</code>", parse_mode="HTML")
+        bot.send_message(message.chat.id, "❌ Ошибка при выдаче! Проверьте правильность ID.", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -83,10 +89,10 @@ def callback_query(call):
     
     if call.data == "btn_mods":
         mods_text = (
-            "📦 <b>Список ваших модов:</b>\n\n"
+            "📦 <b>Список модов от @Makaronpay:</b>\n\n"
             "1. <b>PiarSend</b> — Мод для автоматизации рассылок, управления аккаунтами, "
             "быстрой регистрации и удобного HUD-интерфейса на клиенте Fabric.\n\n"
-            "owner @Makoronpay"
+            "Разработчик: @Makaronpay"
         )
         bot.send_message(user_id, mods_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
         
@@ -99,13 +105,30 @@ def callback_query(call):
             InlineKeyboardButton("⬅️ Назад", callback_data="btn_back")
         )
         bot.edit_message_text(
-            "❤️ <b>Выберите вариант поддержки проекта:</b>\n\n"
+            "❤️ <b>Выберите вариант поддержки проекта @Makaronpay:</b>\n\n"
             "Нажмите на нужную сумму, чтобы получить QR-код для перевода через СБП.",
             chat_id=user_id,
             message_id=call.message.message_id,
             parse_mode="HTML",
             reply_markup=support_markup
         )
+        
+    elif call.data == "btn_info":
+        sub_status = user_subscriptions.get(user_id, "нету")
+        
+        if user_id in linked_users and linked_users[user_id]:
+            codes_str = ", ".join([f"<code>{c}</code>" for c in linked_users[user_id]])
+        else:
+            codes_str = "не привязан"
+            
+        info_text = (
+            f"ℹ️ <b>Информация об аккаунте (проект @Makaronpay):</b>\n\n"
+            f"🆔 <b>ID аккаунта:</b> <code>{user_id}</code>\n"
+            f"⭐ <b>Подписка:</b> <b>{sub_status}</b>\n"
+            f"🔗 <b>Привязан на код(ы):</b> {codes_str}\n\n"
+            f"По всем вопросам: @Makaronpay"
+        )
+        bot.send_message(user_id, info_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
         
     elif call.data.startswith("pay_"):
         tier_names = {
@@ -129,7 +152,7 @@ def callback_query(call):
             f"💳 <b>Выбрано: {tier_title}</b>\n\n"
             f"📷 <b>QR-код для перевода по СБП:</b>\n"
             f"1. Отсканируйте код через приложение своего банка (Т-Банк, Сбер и др.).\n"
-            f"2. После оплаты отправьте чек или скриншот администратору (@Makoronpay), чтобы подтвердить поддержку!"
+            f"2. После оплаты отправьте чек или скриншот администратору (@Makaronpay), чтобы подтвердить поддержку!"
         )
         
         back_markup = InlineKeyboardMarkup()
@@ -139,7 +162,7 @@ def callback_query(call):
         
     elif call.data == "btn_back":
         bot.edit_message_text(
-            "👋 Выберите нужный пункт меню:",
+            "👋 Выберите нужный пункт меню @Makaronpay:",
             chat_id=user_id,
             message_id=call.message.message_id,
             reply_markup=get_main_menu(user_id)
@@ -148,7 +171,7 @@ def callback_query(call):
     elif call.data == "btn_linked":
         if user_id in linked_users and linked_users[user_id]:
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
-            bot.send_message(user_id, f"✅ Ваши привязанные коды модов:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+            bot.send_message(user_id, f"✅ Ваши привязанные коды модов (@Makaronpay):\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
         else:
             bot.send_message(user_id, "У вас пока нет привязанных модов.", reply_markup=get_main_menu(user_id))
             
@@ -159,7 +182,7 @@ def callback_query(call):
             "📤 Отправь мне команду для привязки.\n\n"
             "Для этого впишите в майнкрафт чате:\n"
             "<code>/send mod link [ваш_код]</code>\n"
-            "и отправьте полученную команду сюда.",
+            "и отправьте полученную команду сюда (@Makaronpay).",
             parse_mode="HTML"
         )
     bot.answer_callback_query(call.id)
@@ -173,15 +196,30 @@ def handle_text(message):
         waiting_for_link[user_id] = True
         bot.send_message(user_id, "📤 Отправьте команду вида: <code>/send mod link [ваш_код]</code>", parse_mode="HTML")
     elif text == "📦 Моды":
-        bot.send_message(user_id, "📦 <b>PiarSend</b> — owner @Makoronpay", parse_mode="HTML", reply_markup=get_main_menu(user_id))
-    elif text == "⭐ Поддержка":
+        bot.send_message(user_id, "📦 <b>PiarSend</b> — от @Makaronpay", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+    elif text == "⭐ Подписки":
         support_markup = InlineKeyboardMarkup(row_width=1)
         support_markup.add(
             InlineKeyboardButton("🔸 Medium — 100 руб", callback_data="pay_medium"),
             InlineKeyboardButton("🔸 Fauth — 300 руб", callback_data="pay_fauth"),
             InlineKeyboardButton("🔸 Поддержка — 4 руб", callback_data="pay_support")
         )
-        bot.send_message(user_id, "❤️ <b>Выберите вариант поддержки проекта:</b>", parse_mode="HTML", reply_markup=support_markup)
+        bot.send_message(user_id, "❤️ <b>Выберите вариант поддержки проекта @Makaronpay:</b>", parse_mode="HTML", reply_markup=support_markup)
+    elif text == "ℹ️ Информация":
+        sub_status = user_subscriptions.get(user_id, "нету")
+        if user_id in linked_users and linked_users[user_id]:
+            codes_str = ", ".join([f"<code>{c}</code>" for c in linked_users[user_id]])
+        else:
+            codes_str = "не привязан"
+            
+        info_text = (
+            f"ℹ️ <b>Информация об аккаунте (@Makaronpay):</b>\n\n"
+            f"🆔 <b>ID аккаунта:</b> <code>{user_id}</code>\n"
+            f"⭐ <b>Подписка:</b> <b>{sub_status}</b>\n"
+            f"🔗 <b>Привязан на код(ы):</b> {codes_str}\n\n"
+            f"Администратор: @Makaronpay"
+        )
+        bot.send_message(user_id, info_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif text == "✅ Привязанные":
         if user_id in linked_users and linked_users[user_id]:
             codes = "\n".join([f"• <code>{code}</code>" for code in linked_users[user_id]])
@@ -200,7 +238,7 @@ def handle_text(message):
             verify_cmd = f"/send mod verify SUCCESS-{code}"
             bot.send_message(
                 user_id,
-                f"🎉 Успешная привязка!\n\n"
+                f"🎉 Успешная привязка (@Makaronpay)!\n\n"
                 f"Введите эту команду в чат Minecraft для активации мода:\n"
                 f"<code>{verify_cmd}</code>",
                 parse_mode="HTML",
@@ -209,12 +247,12 @@ def handle_text(message):
         else:
             bot.send_message(user_id, "❌ Неверный формат! Отправьте команду вида: <code>/send mod link ABC123</code>", parse_mode="HTML")
     else:
-        bot.send_message(user_id, "Используйте кнопки меню для навигации.", reply_markup=get_main_menu(user_id))
+        bot.send_message(user_id, "Используйте кнопки меню для навигации. Поддержка: @Makaronpay", reply_markup=get_main_menu(user_id))
 
 if __name__ == "__main__":
     bot_thread = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
     bot_thread.daemon = True
     bot_thread.start()
     
-    print("Telegram bot started in background thread...")
+    print("Telegram bot (@Makaronpay) started in background thread...")
     run_web()
