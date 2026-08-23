@@ -25,7 +25,7 @@ linked_users = {}
 waiting_for_link = {}
 
 # Ссылка на вашу оплату через СБП / Т-Банк (замените на свою реальную ссылку для перевода)
-SBW_QR_PAYMENT_URL = "https://t.to/your_qr_payment_link"
+SBW_QR_PAYMENT_URL = "http://t.tb.ru/mZirDH"
 
 def get_main_menu(user_id):
     markup = InlineKeyboardMarkup(row_width=2)
