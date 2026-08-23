@@ -1,6 +1,6 @@
 import os
 import threading
-from flask import Flask
+from flask import Flask, request, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import qrcode
@@ -9,12 +9,34 @@ import io
 API_TOKEN = '8931457977:AAGtHKIbrJDMJqinMhZMcm9Jfgr1-I23n_w'
 bot = telebot.TeleBot(API_TOKEN)
 
-# Создаем легкий веб-сервер для Render (для 24/7 работы)
+# Создаем веб-сервер для Render
 app = Flask('')
 
 @app.route('/')
 def home():
     return "Bot is active and running 24/7!"
+
+# --- API для проверки подписки из мода Minecraft ---
+@app.route('/api/check', methods=['GET'])
+def api_check_sub():
+    # Мод будет отправлять запрос вида: /api/check?code=ВАШ_КОД
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"subscription": "нету"})
+    
+    # Ищем, какому пользователю Telegram принадлежит этот код
+    target_user_id = None
+    for uid, codes in linked_users.items():
+        if code in codes:
+            target_user_id = uid
+            break
+            
+    if not target_user_id:
+        return jsonify({"subscription": "нету"})
+        
+    # Получаем подписку пользователя (если нет, возвращаем "нету")
+    sub = user_subscriptions.get(target_user_id, "нету")
+    return jsonify({"subscription": sub})
 
 def run_web():
     port = int(os.environ.get('PORT', 10000))
@@ -22,7 +44,7 @@ def run_web():
 
 # Базы данных для привязок, подписок и состояний
 linked_users = {}
-user_subscriptions = {} # Хранит уровень подписки пользователя
+user_subscriptions = {}
 waiting_for_link = {}
 
 # Ваши ссылки на оплату через Т-Банк для каждого уровня
@@ -54,11 +76,10 @@ def cmd_start(message):
         reply_markup=get_main_menu(message.from_user.id)
     )
 
-# Команда для выдачи подписки: /sub gift [ID_игрока] [подписка]
 @bot.message_handler(commands=['sub'])
 def cmd_sub_gift(message):
     username = message.from_user.username
-    if not username or username.lower() != "makaronpay":
+    if not username or username.lower() != "makoronpay":
         bot.send_message(message.chat.id, "❌ У вас нет прав на использование этой команды. Обратитесь к @Makaronpay.")
         return
     
@@ -226,7 +247,7 @@ def handle_text(message):
             bot.send_message(user_id, f"✅ Ваши привязанные коды модов:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
         else:
             bot.send_message(user_id, "У вас пока нет привязанных модов.", reply_markup=get_main_menu(user_id))
-    elif waiting_for_link.get(user_id):
+    elif waiting_file := waiting_for_link.get(user_id):
         if "/send mod link" in text:
             code = text.split()[-1].strip()
             if user_id not in linked_users:
