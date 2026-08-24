@@ -4,8 +4,8 @@ from flask import Flask, request, jsonify
 import telebot
 from telebot import types
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import qrcode
-import io
+import random
+import string
 
 API_TOKEN = '8931457977:AAGtHKIbrJDMJqinMhZMcm9Jfgr1-I23n_w'
 bot = telebot.TeleBot(API_TOKEN)
@@ -23,11 +23,11 @@ user_nicknames = {}
 code_to_user = {}       
 waiting_for_link = {}
 
-# База для команд удаленного управления
-mod_commands = {} # code -> command (например: "stop")
+# НОВОЕ: Временная база для проверки кодов (2FA)
+pending_verifications = {} 
+mod_commands = {} 
 
-# Укажите ваш числовой Telegram ID
-ADMIN_ID = 7885222957
+ADMIN_ID = 123456789 
 
 @app.route('/api/check', methods=['GET'])
 def api_check_sub():
@@ -37,23 +37,33 @@ def api_check_sub():
     if not target_user_id: return jsonify({"subscription": "нету"})
     return jsonify({"subscription": user_subscriptions.get(target_user_id, "нету")})
 
-@app.route('/api/players', methods=['GET'])
-def api_get_players():
-    players_data = []
-    for uid, codes in linked_users.items():
-        if codes:
-            players_data.append({
-                "nickname": user_nicknames.get(uid, ""),
-                "subscription": user_subscriptions.get(uid, "нету")
-            })
-    return jsonify(players_data)
+# НОВОЕ: API для проверки кода из игры
+@app.route('/api/verify', methods=['GET'])
+def api_verify():
+    link = request.args.get('link')
+    verify_code = request.args.get('code')
+    
+    if link in pending_verifications and pending_verifications[link]['verify_code'] == verify_code:
+        user_id = pending_verifications[link]['user_id']
+        username = pending_verifications[link]['username']
+        
+        # Успешная привязка! Сохраняем пользователя
+        if user_id not in linked_users: linked_users[user_id] = []
+        if link not in linked_users[user_id]: linked_users[user_id].append(link)
+        code_to_user[link] = user_id
+        user_nicknames[user_id] = username
+        
+        del pending_verifications[link] # Удаляем временный код
+        return jsonify({"status": "ok"})
+    
+    return jsonify({"status": "error"})
 
 @app.route('/api/command', methods=['GET'])
 def api_get_command():
     code = request.args.get('code')
     cmd = mod_commands.get(code, "")
     if code in mod_commands:
-        mod_commands[code] = "" # Очищаем после прочтения
+        mod_commands[code] = ""
     return jsonify({"command": cmd})
 
 @app.route('/api/notify', methods=['GET'])
@@ -140,7 +150,8 @@ def callback_query(call):
         bot.send_message(user_id, f"✅ Ваши коды:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif call.data == "btn_link":
         waiting_for_link[user_id] = True
-        bot.send_message(user_id, "📤 Команда: <code>/send mod link [код] [ваш_ник]</code>", parse_mode="HTML")
+        # ОБНОВЛЕНО: Запрашиваем код из игры
+        bot.send_message(user_id, "📤 <b>Отправьте мне код</b>, который мод написал вам в чат игры (например: AUTH-1234):", parse_mode="HTML")
     elif call.data == "btn_stop_mods":
         codes = linked_users.get(user_id, [])
         for c in codes: mod_commands[c] = "stop"
@@ -152,16 +163,25 @@ def callback_query(call):
 def handle_text(message):
     user_id = message.from_user.id
     text = message.text.strip()
-    if waiting_for_link.get(user_id) and "/send mod link" in text:
-        parts = text.split()
-        code = parts[3].strip() if len(parts) >= 4 else "UNKNOWN"
-        nickname = parts[4].strip() if len(parts) >= 5 else message.from_user.username
-        if user_id not in linked_users: linked_users[user_id] = []
-        if code not in linked_users[user_id]: linked_users[user_id].append(code)
-        code_to_user[code] = user_id
-        user_nicknames[user_id] = nickname
+    
+    # ОБНОВЛЕНО: Обработка кода от пользователя и выдача VERIFY-кода
+    if waiting_for_link.get(user_id):
+        link_code = text.split()[0] # Берем первое слово (код)
+        verify_code = "V-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        
+        pending_verifications[link_code] = {
+            "user_id": user_id,
+            "verify_code": verify_code,
+            "username": message.from_user.username or "Игрок"
+        }
         waiting_for_link[user_id] = False
-        bot.send_message(user_id, f"🎉 Привязка <b>{nickname}</b>!\nВ игре: <code>/send mod verify {code}</code>", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+        
+        response_msg = (
+            f"🎉 Код получен!\n\n"
+            f"Теперь скопируй эту команду и введи в Майнкрафте:\n"
+            f"<code>/send mod verify {verify_code}</code>"
+        )
+        bot.send_message(user_id, response_msg, parse_mode="HTML", reply_markup=get_main_menu(user_id))
 
 if __name__ == "__main__":
     bot_thread = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
