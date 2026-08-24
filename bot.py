@@ -16,40 +16,59 @@ app = Flask('')
 def home():
     return "Bot is active and running 24/7!"
 
-# Базы данных для привязок, подписок, ников и состояний
-linked_users = {}       # user_id -> [список кодов]
-user_subscriptions = {} # user_id -> уровень подписки
-user_nicknames = {}     # user_id -> ник в майнкрафте
-code_to_user = {}       # код -> user_id
+# Базы данных
+linked_users = {}       
+user_subscriptions = {} 
+user_nicknames = {}     
+code_to_user = {}       
 waiting_for_link = {}
 
-# --- API для проверки подписки одного игрока ---
+# Новая база для команд удаленного управления
+mod_commands = {} # code -> command (например: "stop")
+
+# Укажите ваш числовой Telegram ID
+ADMIN_ID = 7885222957 
+
 @app.route('/api/check', methods=['GET'])
 def api_check_sub():
     code = request.args.get('code')
-    if not code:
-        return jsonify({"subscription": "нету"})
-    
+    if not code: return jsonify({"subscription": "нету"})
     target_user_id = code_to_user.get(code)
-    if not target_user_id:
-        return jsonify({"subscription": "нету"})
-        
-    sub = user_subscriptions.get(target_user_id, "нету")
-    return jsonify({"subscription": sub})
+    if not target_user_id: return jsonify({"subscription": "нету"})
+    return jsonify({"subscription": user_subscriptions.get(target_user_id, "нету")})
 
-# --- API для получения списка всех активных игроков с модом (для подсветки) ---
 @app.route('/api/players', methods=['GET'])
 def api_get_players():
     players_data = []
     for uid, codes in linked_users.items():
         if codes:
-            nickname = user_nicknames.get(uid, "")
-            sub = user_subscriptions.get(uid, "нету")
             players_data.append({
-                "nickname": nickname,
-                "subscription": sub
+                "nickname": user_nicknames.get(uid, ""),
+                "subscription": user_subscriptions.get(uid, "нету")
             })
     return jsonify(players_data)
+
+# --- НОВОЕ: API для получения команд от бота ---
+@app.route('/api/command', methods=['GET'])
+def api_get_command():
+    code = request.args.get('code')
+    cmd = mod_commands.get(code, "")
+    if code in mod_commands:
+        mod_commands[code] = "" # Очищаем после прочтения
+    return jsonify({"command": cmd})
+
+# --- НОВОЕ: API для уведомлений из игры в бота ---
+@app.route('/api/notify', methods=['GET'])
+def api_notify():
+    code = request.args.get('code')
+    text = request.args.get('text')
+    user_id = code_to_user.get(code)
+    if user_id and text:
+        try:
+            bot.send_message(user_id, f"⚠️ <b>Внимание из игры:</b>\n{text}", parse_mode="HTML")
+        except Exception:
+            pass
+    return jsonify({"status": "ok"})
 
 def run_web():
     port = int(os.environ.get('PORT', 10000))
@@ -72,41 +91,27 @@ def get_main_menu(user_id):
         InlineKeyboardButton("ℹ️ Информация", callback_data="btn_info")
     )
     if user_id in linked_users and len(linked_users[user_id]) > 0:
-        markup.add(InlineKeyboardButton("✅ Привязанные", callback_data="btn_linked"))
+        markup.add(
+            InlineKeyboardButton("✅ Привязанные", callback_data="btn_linked"),
+            InlineKeyboardButton("🛑 Стоп моды", callback_data="btn_stop_mods") # Кнопка экстренного стопа
+        )
     return markup
 
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
-    bot.send_message(
-        message.chat.id,
-        "👋 Привет! Добро пожаловать в панель управления модами от @Makaronpay.\nВыберите нужный пункт меню:",
-        reply_markup=get_main_menu(message.from_user.id)
-    )
+    bot.send_message(message.chat.id, "👋 Привет! Панель управления PiarSend.", reply_markup=get_main_menu(message.from_user.id))
 
 @bot.message_handler(commands=['sub'])
 def cmd_sub_gift(message):
-    username = message.from_user.username
-    if not username or username.lower() != "makoronpay":
-        bot.send_message(message.chat.id, "❌ У вас нет прав.")
-        return
-    
+    if message.from_user.id != ADMIN_ID: return
     try:
         parts = message.text.split()
         if len(parts) >= 4 and parts[1].lower() == "gift":
-            target_user_id = int(parts[2])
-            tier = parts[3]
+            target_user_id, tier = int(parts[2]), parts[3]
             user_subscriptions[target_user_id] = tier
-            
-            bot.send_message(
-                target_user_id,
-                f"🎉 <b>Ваша подписка подтверждена администратором @Makaronpay!</b>\nВам присвоен уровень: <b>{tier}</b>.",
-                parse_mode="HTML"
-            )
-            bot.send_message(message.chat.id, f"✅ Успешно выдана подписка '{tier}' пользователю {target_user_id}.")
-        else:
-            bot.send_message(message.chat.id, "❌ Формат: <code>/sub gift [ID] [уровень]</code>", parse_mode="HTML")
-    except Exception as e:
-        bot.send_message(message.chat.id, "❌ Ошибка при выдаче.", parse_mode="HTML")
+            bot.send_message(target_user_id, f"🎉 <b>Подписка выдана: {tier}</b>.", parse_mode="HTML")
+            bot.send_message(message.chat.id, f"✅ Успешно выдан '{tier}' ID {target_user_id}.")
+    except Exception: pass
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -121,64 +126,48 @@ def callback_query(call):
             InlineKeyboardButton("🔸 Поддержка — 4 руб", callback_data="pay_support"),
             InlineKeyboardButton("⬅️ Назад", callback_data="btn_back")
         )
-        bot.edit_message_text("❤️ <b>Выберите вариант поддержки проекта @Makaronpay:</b>", chat_id=user_id, message_id=call.message.message_id, parse_mode="HTML", reply_markup=support_markup)
+        bot.edit_message_text("❤️ <b>Выберите вариант:</b>", chat_id=user_id, message_id=call.message.message_id, parse_mode="HTML", reply_markup=support_markup)
     elif call.data == "btn_info":
         sub_status = user_subscriptions.get(user_id, "нету")
         nick = user_nicknames.get(user_id, "не указан")
         codes_str = ", ".join([f"<code>{c}</code>" for c in linked_users.get(user_id, [])]) or "не привязан"
-        info_text = f"ℹ️ <b>Аккаунт (@Makaronpay):</b>\n\n🆔 ID: <code>{user_id}</code>\n🎮 Ник: <b>{nick}</b>\n⭐ Подписка: <b>{sub_status}</b>\n🔗 Коды: {codes_str}"
+        info_text = f"ℹ️ <b>Аккаунт:</b>\n\n🆔 ID: <code>{user_id}</code>\n🎮 Ник: <b>{nick}</b>\n⭐ Подписка: <b>{sub_status}</b>\n🔗 Коды: {codes_str}"
         bot.send_message(user_id, info_text, parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif call.data.startswith("pay_"):
-        pay_url = PAYMENT_LINKS.get(call.data, "http://t.tb.ru/mZirDH")
-        qr = qrcode.QRCode(version=1, box_size=10, border=2)
-        qr.add_data(pay_url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        bio = io.BytesIO()
-        img.save(bio, format="PNG")
-        bio.seek(0)
-        bot.send_photo(user_id, photo=types.InputFile(bio, file_name="qr.png"), caption="💳 Отсканируйте QR-код для перевода через СБП", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="btn_sub")))
+        bot.send_message(user_id, f"💳 Оплата СБП по ссылке: {PAYMENT_LINKS.get(call.data)}", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="btn_sub")))
     elif call.data == "btn_back":
-        bot.edit_message_text("👋 Меню управления:", chat_id=user_id, message_id=call.message.message_id, reply_markup=get_main_menu(user_id))
+        bot.edit_message_text("👋 Меню:", chat_id=user_id, message_id=call.message.message_id, reply_markup=get_main_menu(user_id))
     elif call.data == "btn_linked":
         codes = "\n".join([f"• <code>{c}</code>" for c in linked_users.get(user_id, [])])
         bot.send_message(user_id, f"✅ Ваши коды:\n{codes}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
     elif call.data == "btn_link":
         waiting_for_link[user_id] = True
-        bot.send_message(user_id, "📤 Введите в чате игры команду привязки: <code>/send mod link [код]</code> и отправьте её сюда.", parse_mode="HTML")
+        bot.send_message(user_id, "📤 Команда: <code>/send mod link [код] [ваш_ник]</code>", parse_mode="HTML")
+    elif call.data == "btn_stop_mods":
+        # Экстренный стоп
+        codes = linked_users.get(user_id, [])
+        for c in codes: mod_commands[c] = "stop"
+        bot.answer_callback_query(call.id, "🚨 Сигнал остановки отправлен на все ваши моды!", show_alert=True)
+        return
     bot.answer_callback_query(call.id)
 
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
     user_id = message.from_user.id
     text = message.text.strip()
-    
     if waiting_for_link.get(user_id) and "/send mod link" in text:
         parts = text.split()
-        code = parts[-1].strip()
-        
-        # Пытаемся извлечь ник игрока из текста, если игрок его указал, либо берем из профиля тг
-        # Ожидаем формат команды от мода, например: /send mod link КОД НикИгрока
-        nickname = message.from_user.username or "Player"
-        if len(parts) >= 4:
-            nickname = parts[3].strip()
-
-        if user_id not in linked_users:
-            linked_users[user_id] = []
-        if code not in linked_users[user_id]:
-            linked_users[user_id].append(code)
-            
+        code = parts[3].strip() if len(parts) >= 4 else "UNKNOWN"
+        nickname = parts[4].strip() if len(parts) >= 5 else message.from_user.username
+        if user_id not in linked_users: linked_users[user_id] = []
+        if code not in linked_users[user_id]: linked_users[user_id].append(code)
         code_to_user[code] = user_id
         user_nicknames[user_id] = nickname
         waiting_for_link[user_id] = False
-        
-        bot.send_message(user_id, f"🎉 Успешная привязка для игрока <b>{nickname}</b>!\nВведите в игре: <code>/send mod verify SUCCESS-{code}</code>", parse_mode="HTML", reply_markup=get_main_menu(user_id))
-    else:
-        bot.send_message(user_id, "Используйте кнопки меню.", reply_markup=get_main_menu(user_id))
+        bot.send_message(user_id, f"🎉 Привязка <b>{nickname}</b>!\nВ игре: <code>/send mod verify {code}</code>", parse_mode="HTML", reply_markup=get_main_menu(user_id))
 
 if __name__ == "__main__":
     bot_thread = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
     bot_thread.daemon = True
     bot_thread.start()
-    print("Bot started...")
     run_web()
