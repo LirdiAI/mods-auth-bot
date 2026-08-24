@@ -27,7 +27,7 @@ waiting_for_link = {}
 mod_commands = {} # code -> command (например: "stop")
 
 # Укажите ваш числовой Telegram ID
-ADMIN_ID = 123456789 
+ADMIN_ID = 7885222957
 
 @app.route('/api/check', methods=['GET'])
 def api_check_sub():
