@@ -27,7 +27,7 @@ waiting_for_link = {}
 pending_verifications = {} 
 mod_commands = {} 
 
-ADMIN_ID = 123456789 
+ADMIN_ID = 7885222957 
 
 @app.route('/api/check', methods=['GET'])
 def api_check_sub():
