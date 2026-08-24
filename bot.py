@@ -23,11 +23,11 @@ user_nicknames = {}
 code_to_user = {}       
 waiting_for_link = {}
 
-# Новая база для команд удаленного управления
+# База для команд удаленного управления
 mod_commands = {} # code -> command (например: "stop")
 
 # Укажите ваш числовой Telegram ID
-ADMIN_ID = 7885222957 
+ADMIN_ID = 123456789 
 
 @app.route('/api/check', methods=['GET'])
 def api_check_sub():
@@ -48,7 +48,6 @@ def api_get_players():
             })
     return jsonify(players_data)
 
-# --- НОВОЕ: API для получения команд от бота ---
 @app.route('/api/command', methods=['GET'])
 def api_get_command():
     code = request.args.get('code')
@@ -57,7 +56,6 @@ def api_get_command():
         mod_commands[code] = "" # Очищаем после прочтения
     return jsonify({"command": cmd})
 
-# --- НОВОЕ: API для уведомлений из игры в бота ---
 @app.route('/api/notify', methods=['GET'])
 def api_notify():
     code = request.args.get('code')
@@ -93,7 +91,7 @@ def get_main_menu(user_id):
     if user_id in linked_users and len(linked_users[user_id]) > 0:
         markup.add(
             InlineKeyboardButton("✅ Привязанные", callback_data="btn_linked"),
-            InlineKeyboardButton("🛑 Стоп моды", callback_data="btn_stop_mods") # Кнопка экстренного стопа
+            InlineKeyboardButton("🛑 Стоп моды", callback_data="btn_stop_mods")
         )
     return markup
 
@@ -144,7 +142,6 @@ def callback_query(call):
         waiting_for_link[user_id] = True
         bot.send_message(user_id, "📤 Команда: <code>/send mod link [код] [ваш_ник]</code>", parse_mode="HTML")
     elif call.data == "btn_stop_mods":
-        # Экстренный стоп
         codes = linked_users.get(user_id, [])
         for c in codes: mod_commands[c] = "stop"
         bot.answer_callback_query(call.id, "🚨 Сигнал остановки отправлен на все ваши моды!", show_alert=True)
